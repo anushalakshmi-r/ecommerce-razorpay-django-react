@@ -1,0 +1,15 @@
+# Virtual Environment
+venv/
+env/
+.env
+
+# Python artifacts
+*.pyc
+__pycache__/
+*.sqlite3
+staticfiles/
+
+# Node & Frontend
+node_modules/
+dist/
+.DS_Store
