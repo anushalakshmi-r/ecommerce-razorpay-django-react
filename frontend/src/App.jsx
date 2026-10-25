@@ -11,7 +11,17 @@ export default function App() {
   const [cartItems, setCartItems] = useState([]);
   const [showCart, setShowCart] = useState(false);
 
-  const API_BASE_URL = "https://ecommerce-razorpay-django-react-1.onrender.com";
+  // பழைய லோக்கல் லிங்க்-க்கு பதிலாக உங்கள் லைவ் Render Backend URL:
+const API_URL = "https://ecommerce-razorpay-django-react-1.onrender.com/api/products/";
+
+useEffect(() => {
+  axios.get(API_URL)
+    .then((res) => {
+      console.log("Products received:", res.data);
+      setProducts(res.data);
+    })
+    .catch((err) => console.error("API Error:", err));
+}, []);
   const addToCart = (product) => {
     setCartItems((items) => (
       items.some((item) => item.id === product.id) ? items : [...items, product]
