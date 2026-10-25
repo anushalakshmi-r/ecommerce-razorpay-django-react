@@ -11,6 +11,7 @@ export default function App() {
   const [cartItems, setCartItems] = useState([]);
   const [showCart, setShowCart] = useState(false);
 
+  const API_BASE_URL = "https://ecommerce-razorpay-django-react-1.onrender.com";
   const addToCart = (product) => {
     setCartItems((items) => (
       items.some((item) => item.id === product.id) ? items : [...items, product]
@@ -30,7 +31,7 @@ export default function App() {
 
   // 1. புராடக்டுகளை பெறுதல்
   useEffect(() => {
-    axios.get('http://127.0.0.1:8000/api/products/')
+    axios.get(`${API_BASE_URL}/api/products/`)
       .then((res) => setProducts(res.data))
       .catch((err) => {
         console.error(err);
