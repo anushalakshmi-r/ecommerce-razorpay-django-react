@@ -148,20 +148,34 @@ class VerifyPaymentView(APIView):
             return Response({'status': 'failed', 'message': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
-        from django.contrib.auth import get_user_model
-from django.http import HttpResponse
-from .seed_data import populate
+from django.contrib.auth import get_user_model
+from django.http import JsonResponse
+from .models import Product
 
 def setup_project(request):
-    # 1. Admin user create / update seithal
-    User = get_user_model()
-    user, created = User.objects.get_or_create(username='admin')
-    user.set_password('admin123')
-    user.is_staff = True
-    user.is_superuser = True
-    user.save()
+    try:
+        # 1. Admin user உருவாக்குதல் அல்லது பாஸ்வேர்ட் மாற்றுதல்
+        User = get_user_model()
+        user, created = User.objects.get_or_create(username='admin')
+        user.set_password('Admin@12345')
+        user.is_staff = True
+        user.is_superuser = True
+        user.save()
+        user_status = "Admin created" if created else "Admin password updated"
 
-    # 2. Products ellaathaiyum database-la load seithal
-    populate()
+        # 2. Products டேட்டா ஏற்றுதல்
+        from store.seed_data import populate
+        populate()
 
-    return HttpResponse("<h1>Success! Admin user matrum Products create aagivittathu.</h1><p>Username: <b>admin</b></p><p>Password: <b>admin123</b></p>")
+        return JsonResponse({
+            "status": "success",
+            "admin_status": user_status,
+            "username": "admin",
+            "password": "Admin@12345",
+            "products_count": Product.objects.count()
+        })
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "error_message": str(e)
+        }, status=200)
