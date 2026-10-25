@@ -1,260 +1,198 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import CheckoutPage from './CheckoutPage.jsx';
+
+// Render Backend API Live URL
+const API_BASE_URL = "https://ecommerce-razorpay-django-react-1.onrender.com";
 
 export default function App() {
   const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
   const [successData, setSuccessData] = useState(null);
-  const [checkoutProducts, setCheckoutProducts] = useState(null);
-  const [checkoutFromCart, setCheckoutFromCart] = useState(false);
-  const [productsError, setProductsError] = useState('');
-  const [cartItems, setCartItems] = useState([]);
-  const [showCart, setShowCart] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
 
-  // பழைய லோக்கல் லிங்க்-க்கு பதிலாக உங்கள் லைவ் Render Backend URL:
-const API_URL = "https://ecommerce-razorpay-django-react-1.onrender.com/api/products/";
-
-useEffect(() => {
-  axios.get(API_URL)
-    .then((res) => {
-      console.log("Products received:", res.data);
-      setProducts(res.data);
-    })
-    .catch((err) => console.error("API Error:", err));
-}, []);
-  const addToCart = (product) => {
-    setCartItems((items) => (
-      items.some((item) => item.id === product.id) ? items : [...items, product]
-    ));
-  };
-
-  const openCheckout = (productsToCheckout, fromCart = false) => {
-    setCheckoutProducts(Array.isArray(productsToCheckout) ? productsToCheckout : [productsToCheckout]);
-    setCheckoutFromCart(fromCart);
-    setShowCart(false);
-  };
-
-  const cartTotal = cartItems.reduce(
-    (totalCents, item) => totalCents + Math.round(Number(item.price) * 100),
-    0,
-  ) / 100;
-
-  // 1. புராடக்டுகளை பெறுதல்
+  // 1. Backend-il ninnu products fetch cheyyuka
   useEffect(() => {
-    axios.get(`${API_BASE_URL}/api/products/`)
-      .then((res) => setProducts(res.data))
-      .catch((err) => {
-        console.error(err);
-        setProductsError('Unable to load products. Please try again later.');
-      });
+    fetchProducts();
   }, []);
 
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      setErrorMessage('');
+      const res = await axios.get(`${API_BASE_URL}/api/products/`);
+      setProducts(res.data || []);
+    } catch (err) {
+      console.error("Products fetch error:", err);
+      setErrorMessage("Products load cheyyan sadhichilla. Backend check cheyyuka.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2. Razorpay Checkout handle cheyyuka
+  const handleBuyNow = async (product) => {
+    try {
+      setProcessingPayment(true);
+
+      // Razorpay Order create cheyyuka
+      const orderRes = await axios.post(`${API_BASE_URL}/api/create-razorpay-order/`, {
+        product_id: product.id,
+      });
+
+      const orderData = orderRes.data;
+
+      // Razorpay Checkout window options
+      const options = {
+        key: orderData.razorpay_key,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "PrintStack Store",
+        description: `Buying ${orderData.product_name}`,
+        order_id: orderData.razorpay_order_id,
+        handler: async function (response) {
+          try {
+            // Payment verify cheyyuka
+            const verifyRes = await axios.post(`${API_BASE_URL}/api/verify-payment/`, {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+
+            // Upsell recommendations screen kanikkuka
+            setSuccessData(verifyRes.data);
+          } catch (verifyErr) {
+            alert("Payment verification fail aayi!");
+            console.error(verifyErr);
+          }
+        },
+        prefill: {
+          name: "Test Customer",
+          email: "customer@example.com",
+          contact: "9999999999",
+        },
+        theme: {
+          color: "#0f172a",
+        },
+      };
+
+      if (window.Razorpay) {
+        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', function (resp) {
+          alert("Payment fail aayi: " + resp.error.description);
+        });
+        rzp.open();
+      } else {
+        alert("Razorpay SDK load aayittilla! index.html check cheyyuka.");
+      }
+    } catch (err) {
+      console.error("Order error:", err);
+      alert("Order create cheyyan sadhichilla.");
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
   return (
-    <div style={{ maxWidth: 900, margin: '40px auto', fontFamily: 'Arial, sans-serif', padding: '0 20px' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-        <h1>PrintStack Store</h1>
-        <nav aria-label="Store navigation">
-          <button
-            type="button"
-            onClick={() => {
-              setCheckoutProducts(null);
-              setShowCart(false);
-            }}
-            style={{
-              padding: '10px 14px',
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              font: 'inherit',
-            }}
-          >
-            Products
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCheckoutProducts(null);
-              setShowCart(true);
-            }}
-            aria-current={showCart ? 'page' : undefined}
-            style={{
-              padding: '10px 14px',
-              border: '1px solid #1a202c',
-              borderRadius: 5,
-              background: showCart ? '#1a202c' : '#fff',
-              color: showCart ? '#fff' : '#1a202c',
-              cursor: 'pointer',
-              font: 'inherit',
-            }}
-          >
-            Cart ({cartItems.length})
-          </button>
-        </nav>
+    <div style={{ maxWidth: 1000, margin: '40px auto', fontFamily: 'Arial, sans-serif', padding: '0 20px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #eee', paddingBottom: 15, marginBottom: 30 }}>
+        <h1 style={{ margin: 0, color: '#111827' }}>PrintStack Store</h1>
+        <button 
+          onClick={fetchProducts} 
+          style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          Refresh Products
+        </button>
       </header>
 
-      {/* Screen 1: பேமெண்ட் முடிந்து Upsell காட்டும் திரை */}
+      {/* Success / Upsell View */}
       {successData ? (
-        <div style={{ background: '#e6fffa', padding: 25, borderRadius: 8, border: '1px solid #38b2ac' }}>
-          <h2>✅ Payment Successful!</h2>
-          <p>Your order for <strong>{successData.purchased_item}</strong> is confirmed (Order ID: #{successData.order_id}).</p>
-          
-          <hr style={{ margin: '20px 0' }} />
+        <div style={{ background: '#ecfdf5', padding: 30, borderRadius: 12, border: '1px solid #10b981' }}>
+          <h2 style={{ color: '#065f46', marginTop: 0 }}>Payment Successful!</h2>
+          <p style={{ fontSize: 16 }}>
+            Order ID: <strong>#{successData.order_id}</strong> | Product: <strong>{successData.purchased_item}</strong>
+          </p>
 
-          <h3>🔥 Complete your setup before it ships! (Zero Extra Delivery Fee)</h3>
-          <div style={{ display: 'flex', gap: 20 }}>
+          <hr style={{ margin: '25px 0', border: 'none', borderTop: '1px solid #a7f3d0' }} />
+
+          <h3 style={{ color: '#047857' }}>Special Add-ons (Free Delivery with your parcel)</h3>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 }}>
             {successData.recommendations && successData.recommendations.length > 0 ? (
               successData.recommendations.map((addon) => (
-                <div key={addon.id} style={{ border: '1px solid #ddd', padding: 15, borderRadius: 6, background: '#fff', width: 220 }}>
-                  <img src={addon.image_url} alt={addon.name} style={{ width: '100%', height: 120, objectFit: 'cover' }} />
-                  <h4>{addon.name}</h4>
-                  <p style={{ color: '#2b6cb0', fontWeight: 'bold' }}>₹{addon.price}</p>
-                  <button style={{ background: '#38a169', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: 4, cursor: 'pointer' }}>
+                <div key={addon.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 15 }}>
+                  <img 
+                    src={addon.image_url} 
+                    alt={addon.name} 
+                    style={{ width: '100%', height: 130, objectFit: 'cover', borderRadius: 6 }} 
+                  />
+                  <h4 style={{ margin: '10px 0 5px' }}>{addon.name}</h4>
+                  <p style={{ color: '#047857', fontWeight: 'bold', fontSize: 16, margin: '5px 0 10px' }}>Rs. {addon.price}</p>
+                  <button 
+                    onClick={() => alert("Added to your order!")} 
+                    style={{ width: '100%', padding: '8px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 'bold' }}
+                  >
                     + Add to My Parcel
                   </button>
                 </div>
               ))
             ) : (
-              <p>No extra add-ons suggested for this item.</p>
+              <p>Add-on recommendations onnumilla.</p>
             )}
           </div>
-          <button onClick={() => setSuccessData(null)} style={{ marginTop: 20, padding: '8px 15px', cursor: 'pointer' }}>
-            Shop More Items
+
+          <button 
+            onClick={() => setSuccessData(null)} 
+            style={{ marginTop: 25, padding: '10px 20px', background: '#374151', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            Continue Shopping
           </button>
         </div>
       ) : (
-        /* Screen 2: Catalog திரை */
-        checkoutProducts ? (
-          <CheckoutPage
-            products={checkoutProducts}
-            onBack={() => {
-              setCheckoutProducts(null);
-              setShowCart(checkoutFromCart);
-            }}
-            onPaymentSuccess={(data) => {
-              const purchasedIds = new Set(checkoutProducts.map((item) => item.id));
-              setCartItems((items) => items.filter((item) => !purchasedIds.has(item.id)));
-              setSuccessData(data);
-              setCheckoutProducts(null);
-              setShowCart(false);
-            }}
-          />
-        ) : showCart ? (
-          <section aria-labelledby="cart-title">
-            <h2 id="cart-title">Your cart</h2>
-            {cartItems.length === 0 ? (
-              <div style={{ padding: 24, border: '1px solid #eee', borderRadius: 8 }}>
-                <p>Your cart is empty.</p>
-                <button
-                  type="button"
-                  onClick={() => setShowCart(false)}
-                  style={{ marginTop: 12, padding: '10px 14px', cursor: 'pointer' }}
-                >
-                  Continue shopping
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 14 }}>
-                {cartItems.map((item) => (
-                  <article
-                    key={item.id}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '100px minmax(0, 1fr) auto',
-                      alignItems: 'center',
-                      gap: 16,
-                      padding: 14,
-                      border: '1px solid #eee',
-                      borderRadius: 8,
-                      textAlign: 'left',
-                    }}
-                  >
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      style={{ width: 100, height: 90, objectFit: 'cover', borderRadius: 5 }}
-                    />
-                    <div>
-                      <h3 style={{ margin: '0 0 6px' }}>{item.name}</h3>
-                      <p style={{ fontWeight: 'bold' }}>₹{item.price}</p>
-                    </div>
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => setCartItems((items) => items.filter((cartItem) => cartItem.id !== item.id))}
-                        style={{ padding: '7px 10px', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </article>
-                ))}
-                <aside style={{ display: 'grid', justifyItems: 'end', gap: 12, padding: 16, border: '1px solid #eee', borderRadius: 8 }}>
-                  <p>
-                    Product total ({cartItems.length} {cartItems.length === 1 ? 'item' : 'items'}):{' '}
-                    <strong>₹{cartTotal.toFixed(2)}</strong>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => openCheckout(cartItems, true)}
-                    style={{
-                      padding: '11px 20px',
-                      background: '#1a202c',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Buy Now
-                  </button>
-                </aside>
-              </div>
-            )}
-          </section>
-        ) : (
+        /* Products Catalog View */
         <div>
-          {productsError && <p role="alert" style={{ color: '#c53030' }}>{productsError}</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 20 }}>
+          {loading && <p style={{ fontSize: 18, color: '#6b7280' }}>Products load aavunnu, please wait...</p>}
+          
+          {errorMessage && (
+            <div style={{ padding: 15, background: '#fee2e2', border: '1px solid #ef4444', color: '#b91c1c', borderRadius: 6, marginBottom: 20 }}>
+              {errorMessage}
+            </div>
+          )}
+
+          {!loading && products.length === 0 && !errorMessage && (
+            <p>Products onnum kandethan aayilla.</p>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 25 }}>
             {products.map((item) => (
-              <div key={item.id} style={{ border: '1px solid #eee', padding: 15, borderRadius: 8, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                <img src={item.image_url} alt={item.name} style={{ width: '100%', height: 150, objectFit: 'cover' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <h3>{item.name}</h3>
-                  <button
-                    type="button"
-                    onClick={() => addToCart(item)}
-                    aria-label={`Add ${item.name} to cart`}
-                    aria-pressed={cartItems.some((cartItem) => cartItem.id === item.id)}
-                    title={cartItems.some((cartItem) => cartItem.id === item.id) ? 'Added to cart' : 'Add to cart'}
-                    style={{
-                      width: 40,
-                      height: 40,
-                      flexShrink: 0,
-                      border: '1px solid #fed7e2',
-                      borderRadius: '50%',
-                      background: cartItems.some((cartItem) => cartItem.id === item.id) ? '#fff5f7' : '#fff',
-                      color: '#d53f8c',
-                      fontSize: 22,
-                      lineHeight: 1,
-                      cursor: 'pointer',
-                    }}
+              <div 
+                key={item.id} 
+                style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, background: '#fff', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+              >
+                <div>
+                  <img 
+                    src={item.image_url} 
+                    alt={item.name} 
+                    style={{ width: '100%', height: 170, objectFit: 'cover', borderRadius: 8, marginBottom: 12 }} 
+                  />
+                  <h3 style={{ margin: '0 0 8px', fontSize: 18, color: '#1f2937' }}>{item.name}</h3>
+                  <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 12px' }}>{item.description}</p>
+                </div>
+
+                <div>
+                  <p style={{ fontWeight: 'bold', fontSize: 20, color: '#111827', margin: '0 0 12px' }}>Rs. {item.price}</p>
+                  <button 
+                    onClick={() => handleBuyNow(item)}
+                    disabled={processingPayment}
+                    style={{ width: '100%', padding: '12px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15, fontWeight: 'bold' }}
                   >
-                    {cartItems.some((cartItem) => cartItem.id === item.id) ? '♥' : '♡'}
+                    {processingPayment ? "Processing..." : "Buy Now"}
                   </button>
                 </div>
-                <p>{item.description}</p>
-                <p style={{ fontWeight: 'bold', fontSize: 18 }}>₹{item.price}</p>
-                <button
-                  onClick={() => openCheckout(item)}
-                  style={{ width: '100%', padding: 10, background: '#1a202c', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                >
-                  Buy Now
-                </button>
               </div>
             ))}
           </div>
         </div>
-        )
       )}
     </div>
   );
