@@ -146,3 +146,22 @@ class VerifyPaymentView(APIView):
             return Response({'status': 'failed', 'message': 'Signature verification failed'}, status=status.HTTP_400_BAD_REQUEST)
         except Order.DoesNotExist:
             return Response({'status': 'failed', 'message': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+        from django.contrib.auth import get_user_model
+from django.http import HttpResponse
+from .seed_data import populate
+
+def setup_project(request):
+    # 1. Admin user create / update seithal
+    User = get_user_model()
+    user, created = User.objects.get_or_create(username='admin')
+    user.set_password('admin123')
+    user.is_staff = True
+    user.is_superuser = True
+    user.save()
+
+    # 2. Products ellaathaiyum database-la load seithal
+    populate()
+
+    return HttpResponse("<h1>Success! Admin user matrum Products create aagivittathu.</h1><p>Username: <b>admin</b></p><p>Password: <b>admin123</b></p>")
