@@ -15,6 +15,7 @@ client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_S
 # 1. புராடக்ட் லிஸ்ட் API
 class ProductListView(APIView):
     def get(self, request):
+        # Database-la irukkura ella products-aiyum get panrom
         products = Product.objects.all()
         serializer = ProductSerializer(products, many=True)
         return Response(serializer.data)
