@@ -19,80 +19,58 @@ class ProductListView(APIView):
         return Response(serializer.data)
 
 
+import razorpay
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Product, Order
+
 class CreateRazorpayOrderView(APIView):
     def post(self, request):
-        checkout_serializer = CheckoutRequestSerializer(data=request.data)
-        if not checkout_serializer.is_valid():
-            return Response(checkout_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        product_id = request.data.get('product_id')
+        if not product_id:
+            return Response({'error': 'Product ID is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        checkout_data = checkout_serializer.validated_data
-        products_by_id = Product.objects.in_bulk(checkout_data['product_ids'])
-        missing_product_ids = set(checkout_data['product_ids']) - set(products_by_id)
-        if missing_product_ids:
-            return Response(
-                {'error': f"Product(s) not found: {', '.join(map(str, sorted(missing_product_ids)))}"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        products = [products_by_id[product_id] for product_id in checkout_data['product_ids']]
-        product = products[0]
-        shipping_amount = Decimal(SHIPPING_RATES[checkout_data['shipping_method']])
-        product_amount = sum((item.price for item in products), Decimal('0.00'))
-        total_amount = product_amount + shipping_amount
-
-        amount_in_paise = int(total_amount * 100)
         try:
+            product = Product.objects.get(id=product_id)
+            amount_in_paise = int(float(product.price) * 100)
+
+            # Strip any accidental whitespace from environment variables
+            key_id = str(settings.RAZORPAY_KEY_ID).strip()
+            key_secret = str(settings.RAZORPAY_KEY_SECRET).strip()
+
+            client = razorpay.Client(auth=(key_id, key_secret))
+
+            # Create Razorpay order
             razorpay_order = client.order.create({
                 'amount': amount_in_paise,
                 'currency': 'INR',
-                'payment_capture': '1',
+                'payment_capture': 1
             })
-        except (
-            razorpay.errors.BadRequestError,
-            razorpay.errors.GatewayError,
-            razorpay.errors.ServerError,
-            requests.exceptions.RequestException,
-        ) as error:
-            return Response(
-                {'error': f'Unable to create payment order: {error}'},
-                status=status.HTTP_502_BAD_GATEWAY,
+
+            # Save order record in database
+            Order.objects.create(
+                product=product,
+                razorpay_order_id=razorpay_order['id'],
+                amount=product.price,
+                status='PENDING'
             )
 
-        order = Order.objects.create(
-            product=product,
-            razorpay_order_id=razorpay_order['id'],
-            amount=total_amount,
-            shipping_amount=shipping_amount,
-            customer_name=checkout_data['customer_name'],
-            customer_email=checkout_data['customer_email'],
-            customer_phone=checkout_data['customer_phone'],
-            address_line1=checkout_data['address_line1'],
-            address_line2=checkout_data.get('address_line2', ''),
-            city=checkout_data['city'],
-            state=checkout_data['state'],
-            postal_code=checkout_data['postal_code'],
-            country=checkout_data['country'],
-            shipping_method=checkout_data['shipping_method'],
-            status='PENDING',
-        )
+            return Response({
+                'razorpay_order_id': razorpay_order['id'],
+                'amount': razorpay_order['amount'],
+                'currency': razorpay_order['currency'],
+                'razorpay_key': key_id,
+                'product_name': product.name,
+                'product_description': product.description
+            }, status=status.HTTP_200_OK)
 
-        OrderItem.objects.bulk_create([
-            OrderItem(order=order, product=item, unit_price=item.price)
-            for item in products
-        ])
-
-        return Response({
-            'razorpay_order_id': razorpay_order['id'],
-            'amount': razorpay_order['amount'],
-            'currency': razorpay_order['currency'],
-            'razorpay_key': settings.RAZORPAY_KEY_ID,
-            'product_name': ', '.join(item.name for item in products),
-            'product_description': ', '.join(item.description for item in products),
-            'product_amount': f'{product_amount:.2f}',
-            'shipping_amount': f'{shipping_amount:.2f}',
-            'total_amount': f'{total_amount:.2f}',
-        })
-
+        except Product.DoesNotExist:
+            return Response({'error': f'Product with ID {product_id} not found in database'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            # Returns the exact server exception to the frontend alert
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # 3. பணம் கட்டிய பிறகு Signature சரிபார்த்து Upsell பரிந்துரைக்கும் API
 class VerifyPaymentView(APIView):
