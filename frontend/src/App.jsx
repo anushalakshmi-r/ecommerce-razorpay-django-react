@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-// Render Backend API Live URL
 const API_BASE_URL = "https://ecommerce-razorpay-django-react-1.onrender.com";
 
 export default function App() {
@@ -11,7 +10,6 @@ export default function App() {
   const [successData, setSuccessData] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
 
-  // 1. Backend-il ninnu products fetch cheyyuka
   useEffect(() => {
     fetchProducts();
   }, []);
@@ -24,45 +22,43 @@ export default function App() {
       setProducts(res.data || []);
     } catch (err) {
       console.error("Products fetch error:", err);
-      setErrorMessage("Products load cheyyan sadhichilla. Backend check cheyyuka.");
+      setErrorMessage("Failed to load products from server. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. Razorpay Checkout handle cheyyuka
   const handleBuyNow = async (product) => {
     try {
       setProcessingPayment(true);
 
-      // Razorpay Order create cheyyuka
+      // Step 1: Create Order via Django Backend
       const orderRes = await axios.post(`${API_BASE_URL}/api/create-razorpay-order/`, {
         product_id: product.id,
       });
 
       const orderData = orderRes.data;
 
-      // Razorpay Checkout window options
+      // Step 2: Configure Razorpay Checkout Modal
       const options = {
         key: orderData.razorpay_key,
         amount: orderData.amount,
         currency: orderData.currency,
         name: "PrintStack Store",
-        description: `Buying ${orderData.product_name}`,
+        description: `Order for ${orderData.product_name}`,
         order_id: orderData.razorpay_order_id,
         handler: async function (response) {
           try {
-            // Payment verify cheyyuka
+            // Step 3: Verify Payment Signature via Django Backend
             const verifyRes = await axios.post(`${API_BASE_URL}/api/verify-payment/`, {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
             });
 
-            // Upsell recommendations screen kanikkuka
             setSuccessData(verifyRes.data);
           } catch (verifyErr) {
-            alert("Payment verification fail aayi!");
+            alert("Payment verification failed! Please check your network or server logs.");
             console.error(verifyErr);
           }
         },
@@ -79,15 +75,16 @@ export default function App() {
       if (window.Razorpay) {
         const rzp = new window.Razorpay(options);
         rzp.on('payment.failed', function (resp) {
-          alert("Payment fail aayi: " + resp.error.description);
+          alert("Payment failed: " + resp.error.description);
         });
         rzp.open();
       } else {
-        alert("Razorpay SDK load aayittilla! index.html check cheyyuka.");
+        alert("Razorpay SDK not loaded. Please refresh the page.");
       }
     } catch (err) {
-      console.error("Order error:", err);
-      alert("Order create cheyyan sadhichilla.");
+      console.error("Order Creation Error:", err.response?.data || err.message);
+      const serverError = err.response?.data?.error || err.message;
+      alert("Order creation failed: " + serverError);
     } finally {
       setProcessingPayment(false);
     }
@@ -105,7 +102,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* Success / Upsell View */}
+      {/* Post-Purchase Upsell View */}
       {successData ? (
         <div style={{ background: '#ecfdf5', padding: 30, borderRadius: 12, border: '1px solid #10b981' }}>
           <h2 style={{ color: '#065f46', marginTop: 0 }}>Payment Successful!</h2>
@@ -129,7 +126,7 @@ export default function App() {
                   <h4 style={{ margin: '10px 0 5px' }}>{addon.name}</h4>
                   <p style={{ color: '#047857', fontWeight: 'bold', fontSize: 16, margin: '5px 0 10px' }}>Rs. {addon.price}</p>
                   <button 
-                    onClick={() => alert("Added to your order!")} 
+                    onClick={() => alert("Added to your parcel successfully!")} 
                     style={{ width: '100%', padding: '8px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 'bold' }}
                   >
                     + Add to My Parcel
@@ -137,7 +134,7 @@ export default function App() {
                 </div>
               ))
             ) : (
-              <p>Add-on recommendations onnumilla.</p>
+              <p>No add-on recommendations available for this item.</p>
             )}
           </div>
 
@@ -149,9 +146,9 @@ export default function App() {
           </button>
         </div>
       ) : (
-        /* Products Catalog View */
+        /* Storefront Catalog View */
         <div>
-          {loading && <p style={{ fontSize: 18, color: '#6b7280' }}>Products load aavunnu, please wait...</p>}
+          {loading && <p style={{ fontSize: 18, color: '#6b7280' }}>Loading products, please wait...</p>}
           
           {errorMessage && (
             <div style={{ padding: 15, background: '#fee2e2', border: '1px solid #ef4444', color: '#b91c1c', borderRadius: 6, marginBottom: 20 }}>
@@ -160,7 +157,7 @@ export default function App() {
           )}
 
           {!loading && products.length === 0 && !errorMessage && (
-            <p>Products onnum kandethan aayilla.</p>
+            <p>No products found in the catalog.</p>
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 25 }}>

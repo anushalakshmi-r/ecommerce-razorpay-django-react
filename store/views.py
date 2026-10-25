@@ -9,18 +9,16 @@ from rest_framework import status
 from .models import Product, Order, OrderItem, SHIPPING_RATES
 from .serializers import CheckoutRequestSerializer, ProductSerializer
 
-# Razorpay client உருவாக்குதல்
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
-# 1. புராடக்ட் லிஸ்ட் API
+
 class ProductListView(APIView):
     def get(self, request):
-        # Database-la irukkura ella products-aiyum get panrom
         products = Product.objects.all()
         serializer = ProductSerializer(products, many=True)
         return Response(serializer.data)
 
-# 2. Razorpay Order உருவாக்கும் API
+
 class CreateRazorpayOrderView(APIView):
     def post(self, request):
         checkout_serializer = CheckoutRequestSerializer(data=request.data)
@@ -35,22 +33,19 @@ class CreateRazorpayOrderView(APIView):
                 {'error': f"Product(s) not found: {', '.join(map(str, sorted(missing_product_ids)))}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
         products = [products_by_id[product_id] for product_id in checkout_data['product_ids']]
         product = products[0]
-
         shipping_amount = Decimal(SHIPPING_RATES[checkout_data['shipping_method']])
         product_amount = sum((item.price for item in products), Decimal('0.00'))
         total_amount = product_amount + shipping_amount
 
-        # Razorpay-லும் தொகை பைசாவில் (Paise) இருக்க வேண்டும் (₹100 = 10000 paise)
         amount_in_paise = int(total_amount * 100)
-
-        # Razorpay-ல் ஆர்டர் உருவாக்குதல்
         try:
             razorpay_order = client.order.create({
                 'amount': amount_in_paise,
                 'currency': 'INR',
-                'payment_capture': '1'  # ஆட்டோமேட்டிக்காக பணத்தை Capture செய்ய
+                'payment_capture': '1',
             })
         except (
             razorpay.errors.BadRequestError,
@@ -63,7 +58,6 @@ class CreateRazorpayOrderView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        # டேட்டாபேஸில் சேமித்தல்
         order = Order.objects.create(
             product=product,
             razorpay_order_id=razorpay_order['id'],
@@ -81,6 +75,7 @@ class CreateRazorpayOrderView(APIView):
             shipping_method=checkout_data['shipping_method'],
             status='PENDING',
         )
+
         OrderItem.objects.bulk_create([
             OrderItem(order=order, product=item, unit_price=item.price)
             for item in products
@@ -97,6 +92,7 @@ class CreateRazorpayOrderView(APIView):
             'shipping_amount': f'{shipping_amount:.2f}',
             'total_amount': f'{total_amount:.2f}',
         })
+
 
 # 3. பணம் கட்டிய பிறகு Signature சரிபார்த்து Upsell பரிந்துரைக்கும் API
 class VerifyPaymentView(APIView):
