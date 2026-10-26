@@ -1,30 +1,30 @@
 from decimal import Decimal
-
-import razorpay
-import requests
-from django.conf import settings
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import Product, Order, OrderItem, SHIPPING_RATES
-from .serializers import CheckoutRequestSerializer, ProductSerializer
-
-client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-
-
-class ProductListView(APIView):
-    def get(self, request):
-        products = Product.objects.all()
-        serializer = ProductSerializer(products, many=True)
-        return Response(serializer.data)
-
-
 import razorpay
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Product, Order
+from .serializers import ProductSerializer
+from store.seed_data import populate
+
+
+client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+
+class ProductListView(APIView):
+    def get(self, request):
+        # If the database was wiped after a server restart, auto-seed it immediately
+        if Product.objects.count() == 0:
+            try:
+                populate()
+            except Exception as e:
+                print(f"Auto-seed error: {e}")
+
+        products = Product.objects.all()
+        serializer = ProductSerializer(products, many=True)
+        return Response(serializer.data)
+
 
 class CreateRazorpayOrderView(APIView):
     def post(self, request):
@@ -36,20 +36,17 @@ class CreateRazorpayOrderView(APIView):
             product = Product.objects.get(id=product_id)
             amount_in_paise = int(float(product.price) * 100)
 
-            # Strip any accidental whitespace from environment variables
             key_id = str(settings.RAZORPAY_KEY_ID).strip()
             key_secret = str(settings.RAZORPAY_KEY_SECRET).strip()
 
             client = razorpay.Client(auth=(key_id, key_secret))
 
-            # Create Razorpay order
             razorpay_order = client.order.create({
                 'amount': amount_in_paise,
                 'currency': 'INR',
                 'payment_capture': 1
             })
 
-            # Save order record in database
             Order.objects.create(
                 product=product,
                 razorpay_order_id=razorpay_order['id'],
@@ -67,12 +64,10 @@ class CreateRazorpayOrderView(APIView):
             }, status=status.HTTP_200_OK)
 
         except Product.DoesNotExist:
-            return Response({'error': f'Product with ID {product_id} not found in database'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': f'Product ID {product_id} not found.'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            # Returns the exact server exception to the frontend alert
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-# 3. பணம் கட்டிய பிறகு Signature சரிபார்த்து Upsell பரிந்துரைக்கும் API
 class VerifyPaymentView(APIView):
     def post(self, request):
         data = request.data
